@@ -153,17 +153,20 @@ static void on_espnow_recv(const esp_now_recv_info_t *info,
     if (p->type != PKT_TYPE_PIXEL) return;
     if (!(p->group_mask & (1U << DEVICE_GROUP_ID))) { s_rx_grp++; return; }
 
-    uint8_t px = p->pixels_per_frame;
-    if (px == 0 || px > MAX_LEDS) return;
+    uint8_t px_src = p->pixels_per_frame;      /* stride between frames */
+    if (px_src == 0) return;
 
     uint8_t cnt = p->frame_count;
-    uint32_t frame_bytes = px * 3;
-    uint32_t max_frames = (PKT_MAX_SIZE - PKT_HDR_SIZE) / frame_bytes;
+    uint32_t stride = px_src * 3U;
+    uint32_t max_frames = (PKT_MAX_SIZE - PKT_HDR_SIZE) / stride;
     if (cnt == 0 || cnt > max_frames) return;
-    if (len < PKT_HDR_SIZE + cnt * frame_bytes) return;
+    if (len < PKT_HDR_SIZE + cnt * stride) return;
 
+    /* Trim to this strip's own length instead of rejecting the packet, so a
+       sender can broadcast one 20px frame to every strip (14/20/10 LEDs). */
+    uint8_t px = (px_src > MAX_LEDS) ? MAX_LEDS : px_src;
     for (uint8_t i = 0; i < cnt; i++)
-        latch_publish(p->data + i * frame_bytes, px);
+        latch_publish(p->data + i * stride, px);
     s_rx_ok++;
 }
 
