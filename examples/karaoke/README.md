@@ -19,7 +19,9 @@ sudo python3 poi_karaoke.py --interface wlan1 --channel 1 \
 
 The one packet-per-frame broadcast carries the *full strip height* (20 px raw)
 to every masked group; the firmware trims each strip to its own length, so one
-mask covers the different strip sizes.
+mask covers the different strip sizes. Lyric text is sent **upside down**
+(LED 0 shows the bottom of a glyph) to match how the strips are physically
+mounted.
 
 ## Requirements
 

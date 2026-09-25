@@ -151,13 +151,17 @@ def parse_lrc(path):
 
 # ---------------------------------------------------------------- banner
 def flip_cols(ch):
-    """5x7 glyph -> a 20-tall column list for each of its 5 columns."""
+    """5x7 glyph -> a 20-tall column list for each of its 5 columns.
+
+    Columns are sent upside down (LED 0 = bottom of the glyph, glyph row 6
+    on top) to match how the strips are physically mounted.
+    """
     g = GLYPHS.get(ch, GLYPHS[" "])
     cols = []
     for gx in range(5):
         col = [0] * LED_H
         for r in range(LED_H):
-            src = (r + 1) * 7 // 21          # map 20 rows onto 7 glyph rows
+            src = (LED_H - r) * 7 // (LED_H + 1)   # invert vertical orientation
             col[r] = (g[src] >> (4 - gx)) & 1
         cols.append(col)
     return cols

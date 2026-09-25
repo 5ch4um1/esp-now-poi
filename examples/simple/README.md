@@ -23,6 +23,7 @@ python3 -m pip install -r ../lib/ESPythoNOW/requirements.txt
 | `--solid COLOR`         | every LED one color and hold (the sanity test)|
 | `--rainbow`             | hue gradient across the strip, slowly cycling |
 | `--cycle`               | rolling rainbow, strip by strip               |
+| `--text "MSG"`          | scroll a text message as a POV banner         |
 
 ## Options
 
@@ -32,6 +33,12 @@ python3 -m pip install -r ../lib/ESPythoNOW/requirements.txt
 * `--leds` — LEDs per strip in the frame (default `20`)
 * `--brightness` — 0.0 … 1.0 brightness scale (default `0.6`)
 * `--fps` — frame rate in frames per second (default `30`)
+
+Text mode options:
+
+* `--color COLOR` — text color (default `white`; names like `red`, `#ff8800`)
+* `--text-rainbow` — rainbow gradient that flows along the text banner
+* `--text-speed N` — scroll rate in characters per second (default `1.0`)
 
 Examples:
 
@@ -44,9 +51,17 @@ sudo python3 poi_send.py --interface wlan1 --rainbow --group-mask 0x3f --leds 10
 
 # Rolling rainbow at a fast frame rate
 sudo python3 poi_send.py --interface wlan1 --cycle --fps 120
+
+# Scroll a message in red
+sudo python3 poi_send.py --interface wlan1 --text "HELLO POI" --color red
+
+# Scroll a message in flowing rainbow colors
+sudo python3 poi_send.py --interface wlan1 --text "RAINBOW" --text-rainbow
 ```
 
-Ctrl-C leaves the strips dark.
+Ctrl-C leaves the strips dark. Text is sent **upside down** (LED 0 shows the
+bottom of a glyph) to match how the strips are physically mounted — same
+orientation as the karaoke example.
 
 ## How it fits
 
