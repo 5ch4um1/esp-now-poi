@@ -53,8 +53,8 @@ pixel data with no acknowledgement:
 
 * **Address** – broadcast (`FF:FF:FF:FF:FF:FF`) on WiFi **channel 1**, sender
   and firmware must agree on the channel.
-* **Frame size** – a packet may carry at most 245 payload bytes, so a 20-LED
-  frame fits 4 per packet (`(250 − 5) / (20 × 3)`).
+* **Frame size** – a packet may carry at most 245 payload bytes, which means
+  no more than **81 LEDs** of RGB data per packet (`(250 − 5) / 3`).
 * **Group masking** – a stick lights a packet only if `group_mask & (1 <<
   DEVICE_GROUP_ID)` is set. Different sticks may have different LED counts
   (14 / 20 / 10); the firmware trims each frame to its own strip length, so one
