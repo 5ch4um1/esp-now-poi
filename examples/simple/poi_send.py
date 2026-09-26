@@ -198,6 +198,9 @@ def main():
                     help="color for --text (default white)")
     ap.add_argument("--text-rainbow", action="store_true",
                     help="rainbow gradient across the --text banner")
+    ap.add_argument("--text-rainbow-rate", type=float, default=10.0,
+                    help="--text-rainbow color drift, independent of text scroll "
+                         "(hue-steps per second, default 10)")
     ap.add_argument("--text-speed", type=float, default=1.0,
                     help="--text scroll rate in characters per second")
     args = ap.parse_args()
@@ -222,7 +225,11 @@ def main():
             elif args.text:
                 colpix = banner[int(col_idx) % len(banner)]
                 if args.text_rainbow:
-                    base = hsv2rgb(int(col_idx) * 4)   # hue flows down the banner
+                    # Gradient keeps riding ON the banner (col_idx), but the
+                    # whole gradient also drifts with wall-clock time, so a
+                    # letter isn't stuck on one color across banner loops.
+                    hue = (int(col_idx) * 4 + int(t * args.text_rainbow_rate)) & 255
+                    base = hsv2rgb(hue)
                     rgb = [(base if colpix[i] else (0, 0, 0)) for i in range(leds)]
                 else:
                     base = scale(color(args.color), br)

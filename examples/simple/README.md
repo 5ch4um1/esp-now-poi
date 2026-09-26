@@ -38,6 +38,8 @@ Text mode options:
 
 * `--color COLOR` — text color (default `white`; names like `red`, `#ff8800`)
 * `--text-rainbow` — rainbow gradient that flows along the text banner
+* `--text-rainbow-rate N` — how fast the rainbow colors drift, independent of
+  text scroll (hue-steps per second, default `10`; higher = colors change faster)
 * `--text-speed N` — scroll rate in characters per second (default `1.0`)
 
 Examples:
