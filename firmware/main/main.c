@@ -42,6 +42,7 @@ static const char *TAG = "poi_espnow";
 
 #define LED_GPIO        6
 #define BUTTON_GPIO     3
+#define BUTTON_HOLD_MS  2000
 #define REGULATOR_GPIO  GPIO_NUM_20
 #define MAX_LEDS        20
 #define PIXEL_BUF_BYTES (MAX_LEDS * 3)
@@ -338,9 +339,22 @@ static void render_task(void *arg)
         /* Button check (runs in same task as render — no race) */
         if (s_btn_flag) {
             s_btn_flag = false;
-            vTaskDelay(pdMS_TO_TICKS(50));
-            if (!gpio_get_level(BUTTON_GPIO))
-                enter_light_sleep();
+            vTaskDelay(pdMS_TO_TICKS(50));             /* debounce */
+            if (gpio_get_level(BUTTON_GPIO) == 0) {
+                /* Power off only after a continuous hold; a short tap is
+                   ignored. While waiting, the strip keeps the last frame. */
+                TickType_t press_start = xTaskGetTickCount();
+                for (;;) {
+                    if (gpio_get_level(BUTTON_GPIO) != 0)
+                        break;                         /* released too early */
+                    if ((xTaskGetTickCount() - press_start)
+                        >= pdMS_TO_TICKS(BUTTON_HOLD_MS)) {
+                        enter_light_sleep();
+                        break;
+                    }
+                    vTaskDelay(pdMS_TO_TICKS(20));
+                }
+            }
         }
 
         uint32_t ver = latch_read(fr, &px);
