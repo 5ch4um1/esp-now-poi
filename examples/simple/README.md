@@ -34,9 +34,15 @@ python3 -m pip install -r ../lib/ESPythoNOW/requirements.txt
   also the banner height: the font is scaled to fill whatever strip height
   you send, so `--leds` works for 10px, 14px, 20px, 24px strips, etc.
 * `--font` — which bitmap glyph set `--text` uses (default `5x7`). Options:
-  * `5x7` — the classic font, same glyphs as the karaoke example
-  * `5x5` — compact 5-row version of the same font
+  * `5x7` — classic full-height font; accent marks are squeezed into the
+    top of the letters (no vertical space wasted), so Spanish input
+    (`Á É Í Ó Ú Ü Ñ ¡ ¿`) works with full-height text. This is the default.
+  * `5x9` — roomier variant: accented glyphs get two extra top rows for the
+    marks, at the cost of ~2 rows of letter height.
+  * `5x5` — compact 5-row version
   * `3x5` — tiny 3-pixel-wide font that stays legible on very short strips
+  The compact fonts have no accent rows: accented input quietly falls back
+  to the base letter (`Á` → `A`, `Ñ` → `N`).
 * `--brightness` — 0.0 … 1.0 brightness scale (default `0.6`), applied to
   every mode as the last step before sending
 * `--fps` — frame rate in frames per second (default `30`)
@@ -63,6 +69,9 @@ sudo python3 poi_send.py --interface wlan1 --text "BIG" --leds 24
 
 # Very short strip: pick the tiny font so text stays readable
 sudo python3 poi_send.py --interface wlan1 --text "TINY" --leds 10 --font 3x5
+
+# Spanish text works out of the box (default 5x7 font, full height)
+sudo python3 poi_send.py --interface wlan1 --text "¡ÑO! ¿QUÉ TAL?"
 
 # Rolling rainbow at a fast frame rate
 sudo python3 poi_send.py --interface wlan1 --cycle --fps 120

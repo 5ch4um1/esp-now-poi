@@ -28,9 +28,12 @@ sudo python3 poi_send.py --interface wlan1 --text "HELLO POI" --color red
 sudo python3 poi_send.py --interface wlan1 --text "RAINBOW" --text-rainbow
 sudo python3 poi_send.py --interface wlan1 --leds 24 --text "BIG"
 sudo python3 poi_send.py --interface wlan1 --leds 10 --font 3x5 --text "TINY"
+sudo python3 poi_send.py --interface wlan1 --text "¡ÑO!" --text-rainbow
 
 --leds sets the strip height; --text scales the font to fill it, and --font
-picks the base glyph set (default 5x7, also 5x5 and 3x5).
+picks the base glyph set. The default 5x7 font keeps text full height and
+squeezes the accent marks into the letters, so Spanish input (Á É Í Ó Ú Ü Ñ
+¡ ¿ and lowercase equivalents) works out of the box with no wasted space.
 """
 
 import argparse
@@ -93,16 +96,74 @@ GLYPHS = {
     ",": (0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0x08),
     "!": (0x04, 0x04, 0x04, 0x04, 0x04, 0x00, 0x04),
     "?": (0x0E, 0x11, 0x01, 0x02, 0x04, 0x00, 0x04),
+    "¡": (0x04, 0x00, 0x04, 0x04, 0x04, 0x04, 0x00),
+    "¿": (0x04, 0x00, 0x00, 0x02, 0x01, 0x11, 0x0E),
     "'": (0x04, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00),
     " ": (0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00),
 }
 
+# Accented letters get the mark squeezed into the top rows of the letter's
+# own 5x7 grid (overlaid, no extra height), so text always stays full
+# height. 5x9 below is the roomier alternative that gives the mark its own
+# rows. Marks are (row, bitmask) pairs, bit 4 = leftmost pixel.
+ACCENT_MARKS = {
+    "acute":     ((0, 0b00001), (1, 0b00010)),   # ´ top-right slash
+    "grave":     ((0, 0b10000), (1, 0b01000)),   # ` top-left slash
+    "diaeresis": ((0, 0b10001),),                # ¨ two dots, top corners
+    "tilde":     ((0, 0b00100), (1, 0b01010)),   # ~ wave
+}
+# Where the fixed mark collides with the letter's own pixels, override it.
+ACCENT_OVERRIDES = {
+    "Ü": ((0, 0b01010),),       # U's corners are already dots -> center them
+}
+ES_ACCENTED = {
+    "Á": ("A", "acute"), "É": ("E", "acute"), "Í": ("I", "acute"),
+    "Ó": ("O", "acute"), "Ú": ("U", "acute"),
+    "À": ("A", "grave"), "È": ("E", "grave"), "Ì": ("I", "grave"),
+    "Ò": ("O", "grave"), "Ù": ("U", "grave"),
+    "Ä": ("A", "diaeresis"), "Ë": ("E", "diaeresis"), "Ï": ("I", "diaeresis"),
+    "Ö": ("O", "diaeresis"), "Ü": ("U", "diaeresis"),
+    "Ñ": ("N", "tilde"),
+}
+ACCENT_FALLBACK = {ch: base for ch, (base, _) in ES_ACCENTED.items()}
+
+# 5x7 full-height set with the accents squeezed in (the default).
+GLYPHS_SQ = dict(GLYPHS)
+for ch, (base, mark) in ES_ACCENTED.items():
+    rows = list(GLYPHS[base])
+    for row, mask in ACCENT_OVERRIDES.get(ch, ACCENT_MARKS[mark]):
+        rows[row] |= mask
+    GLYPHS_SQ[ch] = tuple(rows)
+
+# 5x9 roomier variant: two dedicated top rows for the accents.
+ACCENT_ROW9 = {
+    "acute":     (0x02, 0x04),
+    "grave":     (0x08, 0x04),
+    "diaeresis": (0x0A, 0x00),
+    "tilde":     (0x15, 0x0A),
+}
+GLYPHS_9 = {ch: (0, 0) + g for ch, g in GLYPHS.items()}
+for ch, (base, mark) in ES_ACCENTED.items():
+    a0, a1 = ACCENT_ROW9[mark]
+    GLYPHS_9[ch] = (a0, a1) + GLYPHS[base]
+
+
+def with_accent_fallback(glyphs):
+    """Give compact fonts a graceful fallback: Á -> A, Ñ -> N, etc."""
+    table = dict(glyphs)
+    for acc, base in ACCENT_FALLBACK.items():
+        if base in table:
+            table[acc] = table[base]
+    return table
+
+
 # 5x5 = top five rows of the 5x7 set (compact, same width).
-GLYPHS_5X5 = {ch: tuple(rows[:5]) for ch, rows in GLYPHS.items()}
+GLYPHS_5X5 = with_accent_fallback(
+    {ch: tuple(rows[:5]) for ch, rows in GLYPHS.items()})
 
 # 3x5 = tiny 3-bit-wide font for very low resolution strips. Rows are 3 bits,
 # bit 2 = leftmost pixel.
-GLYPHS_3X5 = {
+GLYPHS_3X5 = with_accent_fallback({
     "A": (2, 5, 7, 5, 5), "B": (7, 5, 7, 5, 7), "C": (7, 4, 4, 4, 7),
     "D": (7, 5, 5, 5, 7), "E": (7, 4, 7, 4, 7), "F": (7, 4, 7, 4, 4),
     "G": (7, 4, 5, 5, 3), "H": (5, 5, 7, 5, 5), "I": (7, 2, 2, 2, 7),
@@ -118,13 +179,18 @@ GLYPHS_3X5 = {
     "9": (7, 5, 7, 1, 7),
     "-": (0, 0, 7, 0, 0), ".": (0, 0, 0, 0, 2), ",": (0, 0, 0, 2, 4),
     "!": (2, 2, 2, 0, 2), "?": (7, 1, 2, 0, 2), "'": (2, 4, 0, 0, 0),
+    "¡": (2, 2, 2, 2, 2), "¿": (2, 0, 3, 1, 2),
     " ": (0, 0, 0, 0, 0),
-}
+})
 
 # One entry per selectable font. "repeat" expands each glyph column
 # horizontally (POV pseudo-resolution), "space" is blank cols between chars.
+# 5x7 is the default: full height, accents squeezed onto the letters.
+# 5x9 gives accents their own rows (roomier, but the letters are ~2 rows
+# shorter); 5x5/3x5 are compact and fall back accented input to base letters.
 FONTS = {
-    "5x7":  {"w": 5, "h": 7, "repeat": 2, "space": 2, "glyphs": GLYPHS},
+    "5x7":  {"w": 5, "h": 7, "repeat": 2, "space": 2, "glyphs": GLYPHS_SQ},
+    "5x9":  {"w": 5, "h": 9, "repeat": 2, "space": 2, "glyphs": GLYPHS_9},
     "5x5":  {"w": 5, "h": 5, "repeat": 2, "space": 2, "glyphs": GLYPHS_5X5},
     "3x5":  {"w": 3, "h": 5, "repeat": 2, "space": 2, "glyphs": GLYPHS_3X5},
 }
@@ -227,8 +293,9 @@ def main():
                     help="LEDs per group in each frame (also the banner "
                          "height for --text)")
     ap.add_argument("--font", choices=sorted(FONTS), default="5x7",
-                    help="bitmap font for --text (default 5x7; 5x5 compact, "
-                         "3x5 for very short strips)")
+                    help="bitmap font for --text (default 5x7: full height, "
+                         "accent marks squeezed into the letters; 5x9 roomier "
+                         "accents, 5x5/3x5 compact)")
     ap.add_argument("--brightness", type=float, default=0.6)
     ap.add_argument("--fps", type=int, default=30)
     mode = ap.add_mutually_exclusive_group(required=True)
