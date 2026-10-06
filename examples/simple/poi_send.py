@@ -26,6 +26,11 @@ Example
 sudo python3 poi_send.py --interface wlan1 --solid red
 sudo python3 poi_send.py --interface wlan1 --text "HELLO POI" --color red
 sudo python3 poi_send.py --interface wlan1 --text "RAINBOW" --text-rainbow
+sudo python3 poi_send.py --interface wlan1 --leds 24 --text "BIG"
+sudo python3 poi_send.py --interface wlan1 --leds 10 --font 3x5 --text "TINY"
+
+--leds sets the strip height; --text scales the font to fill it, and --font
+picks the base glyph set (default 5x7, also 5x5 and 3x5).
 """
 
 import argparse
@@ -40,11 +45,12 @@ from ESPythoNOW import ESPythoNow
 BROADCAST_MAC = "FF:FF:FF:FF:FF:FF"
 PKT_TYPE_PIXEL = 0x01
 
-LED_H = 20                                   # tallest strip -> banner height
-
-# ---------------------------------------------------------------- 5x7 font
-# 26 uppercase letters + digits + punctuation. 7 rows, 5 bits/row,
-# bit 4 = leftmost pixel. Same glyphs as the karaoke example.
+# ---------------------------------------------------------------- fonts
+# Bitmap fonts. GLYPHS is the base 5x7 set (7 rows, 5 bits/row, bit 4 =
+# leftmost pixel, same glyphs as the karaoke example). 5x5 is a compact
+# derivation and 3x5 a tiny 3-wide font for very short strips. Every font is
+# scaled to any strip height at render time (see glyph_cols), so any
+# --leds / strip resolution can be used.
 GLYPHS = {
     "A": (0x0E, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11),
     "B": (0x1E, 0x11, 0x11, 0x1E, 0x11, 0x11, 0x1E),
@@ -91,6 +97,38 @@ GLYPHS = {
     " ": (0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00),
 }
 
+# 5x5 = top five rows of the 5x7 set (compact, same width).
+GLYPHS_5X5 = {ch: tuple(rows[:5]) for ch, rows in GLYPHS.items()}
+
+# 3x5 = tiny 3-bit-wide font for very low resolution strips. Rows are 3 bits,
+# bit 2 = leftmost pixel.
+GLYPHS_3X5 = {
+    "A": (2, 5, 7, 5, 5), "B": (7, 5, 7, 5, 7), "C": (7, 4, 4, 4, 7),
+    "D": (7, 5, 5, 5, 7), "E": (7, 4, 7, 4, 7), "F": (7, 4, 7, 4, 4),
+    "G": (7, 4, 5, 5, 3), "H": (5, 5, 7, 5, 5), "I": (7, 2, 2, 2, 7),
+    "J": (1, 1, 1, 5, 3), "K": (5, 5, 6, 5, 5), "L": (4, 4, 4, 4, 7),
+    "M": (5, 7, 7, 5, 5), "N": (5, 6, 7, 3, 5), "O": (2, 5, 5, 5, 2),
+    "P": (7, 5, 7, 4, 4), "Q": (2, 5, 5, 7, 3), "R": (7, 5, 7, 6, 5),
+    "S": (7, 4, 3, 1, 7), "T": (7, 2, 2, 2, 2), "U": (5, 5, 5, 5, 7),
+    "V": (5, 5, 5, 5, 2), "W": (5, 5, 7, 7, 5), "X": (5, 5, 2, 5, 5),
+    "Y": (5, 5, 2, 2, 2), "Z": (7, 1, 2, 4, 7),
+    "0": (7, 5, 5, 5, 7), "1": (2, 6, 2, 2, 7), "2": (7, 1, 7, 4, 7),
+    "3": (7, 1, 3, 1, 7), "4": (5, 5, 7, 1, 1), "5": (7, 4, 7, 1, 7),
+    "6": (7, 4, 7, 5, 7), "7": (7, 1, 2, 2, 2), "8": (7, 5, 7, 5, 7),
+    "9": (7, 5, 7, 1, 7),
+    "-": (0, 0, 7, 0, 0), ".": (0, 0, 0, 0, 2), ",": (0, 0, 0, 2, 4),
+    "!": (2, 2, 2, 0, 2), "?": (7, 1, 2, 0, 2), "'": (2, 4, 0, 0, 0),
+    " ": (0, 0, 0, 0, 0),
+}
+
+# One entry per selectable font. "repeat" expands each glyph column
+# horizontally (POV pseudo-resolution), "space" is blank cols between chars.
+FONTS = {
+    "5x7":  {"w": 5, "h": 7, "repeat": 2, "space": 2, "glyphs": GLYPHS},
+    "5x5":  {"w": 5, "h": 5, "repeat": 2, "space": 2, "glyphs": GLYPHS_5X5},
+    "3x5":  {"w": 3, "h": 5, "repeat": 2, "space": 2, "glyphs": GLYPHS_3X5},
+}
+
 
 # ---------------------------------------------------------------- helpers
 def color(name_or_hex):
@@ -135,34 +173,38 @@ def hsv2rgb(h):
 
 
 # ---------------------------------------------------------------- text banner
-def glyph_cols(ch):
-    """5x7 glyph -> a 20-tall column list for each of its 5 columns.
+def glyph_cols(ch, font, height):
+    """Glyph -> one column list per horizontal pixel of the glyph.
 
-    Columns are sent upside down (LED 0 = bottom of the glyph, glyph row 6
-    on top) to match how the strips are physically mounted.
+    The glyph bitmap is scaled to any strip height (font size follows the
+    strip). Columns are sent upside down (LED 0 = bottom of the glyph) to
+    match how the strips are physically mounted.
     """
-    g = GLYPHS.get(ch, GLYPHS[" "])
+    w, h = font["w"], font["h"]
+    g = font["glyphs"].get(ch.upper(), font["glyphs"][" "])
     cols = []
-    for gx in range(5):
-        col = [0] * LED_H
-        for r in range(LED_H):
-            src = (LED_H - r) * 7 // (LED_H + 1)   # invert vertical orientation
-            col[r] = (g[src] >> (4 - gx)) & 1
+    for gx in range(w):
+        col = [0] * height
+        if height > 1:
+            for r in range(height):
+                src = (height - 1 - r) * (h - 1) // (height - 1)  # invert, stretch
+                col[r] = (g[src] >> (w - 1 - gx)) & 1
         cols.append(col)
     return cols
 
 
-def build_banner(text):
+def build_banner(text, font, height):
     """Full scrolling banner for one text line. Returns list of columns."""
+    w, repeat, space = font["w"], font["repeat"], font["space"]
     cols = []
     for _ in range(12):                      # lead-in blank space
-        cols.append([0] * LED_H)
+        cols.append([0] * height)
     for ch in text.upper():
-        for col in glyph_cols(ch):           # each glyph col drawn 2 wide
-            cols.append(col)
-            cols.append(col)
-        cols.append([0] * LED_H)             # spacing between chars
-        cols.append([0] * LED_H)
+        for col in glyph_cols(ch, font, height):
+            for _ in range(repeat):          # each glyph col drawn N wide
+                cols.append(col)
+        for _ in range(space):               # spacing between chars
+            cols.append([0] * height)
     return cols
 
 
@@ -182,7 +224,11 @@ def main():
     ap.add_argument("--group-mask", type=lambda s: int(s, 0), default=0x01,
                     help="bitmask of stick groups (hex ok), default 0x01")
     ap.add_argument("--leds", type=int, default=20,
-                    help="LEDs per group in each frame")
+                    help="LEDs per group in each frame (also the banner "
+                         "height for --text)")
+    ap.add_argument("--font", choices=sorted(FONTS), default="5x7",
+                    help="bitmap font for --text (default 5x7; 5x5 compact, "
+                         "3x5 for very short strips)")
     ap.add_argument("--brightness", type=float, default=0.6)
     ap.add_argument("--fps", type=int, default=30)
     mode = ap.add_mutually_exclusive_group(required=True)
@@ -209,19 +255,20 @@ def main():
     mask = args.group_mask & 0xFFFF
     frame = 1.0 / max(1, args.fps)
     leds = max(1, min(args.leds, 81))        # 245 payload bytes / 3
+    font = FONTS[args.font]
+    COLS_PER_CHAR = font["w"] * font["repeat"] + font["space"]
 
     espnow = ESPythoNow(interface=args.interface, channel=args.channel)
     print("ESPythoNOW ready on %s ch%d group mask 0x%x -> %s (%d LEDs)" %
           (args.interface, args.channel, mask, BROADCAST_MAC, leds))
 
-    banner = build_banner(args.text) if args.text else None
-    COLS_PER_CHAR = 12                       # 10 glyph cols + 2 spacing, per char
+    banner = build_banner(args.text, font, leds) if args.text else None
     col_idx = 0.0
     t = 0.0
     try:
         while True:
             if args.solid:
-                rgb = [scale(color(args.solid), br)] * leds
+                rgb = [color(args.solid)] * leds
             elif args.text:
                 colpix = banner[int(col_idx) % len(banner)]
                 if args.text_rainbow:
@@ -230,20 +277,19 @@ def main():
                     # letter isn't stuck on one color across banner loops.
                     hue = (int(col_idx) * 4 + int(t * args.text_rainbow_rate)) & 255
                     base = hsv2rgb(hue)
-                    rgb = [(base if colpix[i] else (0, 0, 0)) for i in range(leds)]
                 else:
-                    base = scale(color(args.color), br)
-                    rgb = [(base if colpix[i] else (0, 0, 0)) for i in range(leds)]
+                    base = color(args.color)
+                rgb = [(base if colpix[i] else (0, 0, 0)) for i in range(leds)]
                 col_idx += args.text_speed * COLS_PER_CHAR * frame
             elif args.rainbow:
                 # Static gradient, hue rotates slowly so you can see it moves.
-                rgb = [scale(hsv2rgb((i * 255 // max(1, leds - 1)) + t * 2), br)
+                rgb = [hsv2rgb((i * 255 // max(1, leds - 1)) + t * 2)
                        for i in range(leds)]
             else:  # --cycle
-                rgb = []
-                for i in range(leds):
-                    rgb.append(scale(hsv2rgb(t * 40 + i * 255 // max(1, leds - 1)),
-                                     br))
+                rgb = [hsv2rgb(t * 40 + i * 255 // max(1, leds - 1))
+                       for i in range(leds)]
+            # Brightness is applied once, as the last step, for every mode.
+            rgb = [scale(c, br) for c in rgb]
             send_frame(espnow, mask, leds, rgb)
             time.sleep(frame)
             t += frame
